@@ -16,9 +16,9 @@ import matplotlib.pyplot as plt
 
 import plotly.express as px
 import plotly.graph_objects as go
-import cv2
-
 import os
+tf.test.is_gpu_available()
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 # Paths to images
 covid_image_path = './COVID-19_Radiography_Dataset/COVID/images/'
 normal_image_path = './COVID-19_Radiography_Dataset/Normal/images/'
@@ -63,7 +63,7 @@ for i in range(1, c*r +1):
     plt.axis('off')
     plt.imshow(open_images([all_image_paths[i-1]])[0], cmap='gray', interpolation='none')
     plt.imshow(open_images([all_mask_paths[i-1]])[0], cmap='Spectral_r', alpha=0.3)
-plt.show()
+plt.savefig("./GT.png")
 
 print('Total Number of Samples:', len(all_image_paths))
 
@@ -165,5 +165,4 @@ for i in range(1, c * r + 1, 2):
     plt.title('Predicted')
     plt.imshow(image[0], cmap='gray', interpolation='none')
     plt.imshow(pred[0], cmap='Spectral_r', alpha=0.3)
-
-plt.show()
+plt.savefig("./pred.png")
