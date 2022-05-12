@@ -1,5 +1,3 @@
-# -*- coding = utf-8 -*-
-# @File_name = main
 import tensorflow as tf
 import tensorflow.keras.utils
 from tensorflow import keras
@@ -13,12 +11,14 @@ from tensorflow.keras.preprocessing.image import load_img
 import numpy as np
 from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
-
 import plotly.express as px
 import plotly.graph_objects as go
 import os
-tf.test.is_gpu_available()
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+import image_preprocessing
+from image_preprocessing import add_highPassFilter
+
+
+
 # Paths to images
 covid_image_path = './COVID-19_Radiography_Dataset/COVID/images/'
 normal_image_path = './COVID-19_Radiography_Dataset/Normal/images/'
@@ -33,13 +33,9 @@ lung_opacity_mask_path = './COVID-19_Radiography_Dataset/Lung_Opacity/masks/'
 # All paths to images and masks
 all_image_paths = [[covid_image_path+file for file in os.listdir(covid_image_path)]
                    +[normal_image_path+file for file in os.listdir(normal_image_path)]
-                   +[pneumonia_image_path+file for file in os.listdir(pneumonia_image_path)]
-                   +[lung_opacity_image_path+file for file in os.listdir(lung_opacity_image_path)]
                   ][0]
 all_mask_paths = [[covid_mask_path+file for file in os.listdir(covid_mask_path)]
                   +[normal_mask_path+file for file in os.listdir(normal_mask_path)]
-                  +[pneumonia_mask_path+file for file in os.listdir(pneumonia_mask_path)]
-                  +[lung_opacity_mask_path+file for file in os.listdir(lung_opacity_mask_path)]
                  ][0]
 
 # Shuffle the arrays
@@ -47,51 +43,84 @@ all_image_paths, all_mask_paths = shuffle(all_image_paths, all_mask_paths)
 
 IMAGE_SIZE = 256
 
-def open_images(paths):
+def open_images(paths, high_freq=False):
     images = []
-    for path in paths:
-        image = load_img(path, target_size=(IMAGE_SIZE, IMAGE_SIZE))
-        image = np.mean(image, axis=-1)/255.0
-        images.append(image)
+    if high_freq:
+        for path in paths:
+            image = load_img(path, target_size=(IMAGE_SIZE, IMAGE_SIZE))
+            image = np.array(image)
+            image = add_highPassFilter(image, 16) / np.max(add_highPassFilter(image, 16))
+            images.append(image)
+    else:
+        for path in paths:
+            image = load_img(path, target_size=(IMAGE_SIZE, IMAGE_SIZE))
+            image = np.array(image)
+            images.append(image)
     return np.array(images)
 
-fig = plt.figure(figsize=(12, 12))
-c = 3
-r = 3
-for i in range(1, c*r +1):
-    fig.add_subplot(r, c, i)
-    plt.axis('off')
-    plt.imshow(open_images([all_image_paths[i-1]])[0], cmap='gray', interpolation='none')
-    plt.imshow(open_images([all_mask_paths[i-1]])[0], cmap='Spectral_r', alpha=0.3)
-plt.savefig("./GT.png")
+
+color_map = {"Normal": [1, 0, 0], "VOCID": [0, 0, 1]}
+def open_masks(paths):
+    masks = []
+    for path in paths:
+        mask = load_img(path, target_size=(IMAGE_SIZE, IMAGE_SIZE))
+        mask = np.array(mask)
+        if "Normal" in path:
+            mask[:, :, 1] = 0
+            mask[:, :, 2] = 0
+        if "VOCID" in path:
+            mask[:, :, 0] = 0
+            mask[:, :, 1] = 0
+        mask = mask / 255.0
+
+        masks.append(mask)
+    return np.array(masks)
+
+
+def imageshow(c=3, r=3):
+    fig = plt.figure(figsize=(12, 12))
+    for i in range(1, c*r +1):
+        fig.add_subplot(r, c, i)
+        plt.axis('off')
+        plt.imshow(open_images([all_image_paths[i-1]], high_freq=True)[0], cmap='gray', interpolation='none')
+        plt.imshow(open_masks([all_mask_paths[i-1]])[0], cmap='Spectral_r', alpha=0.3)
+    plt.savefig("./ground_truth.png")
+    plt.show()
 
 print('Total Number of Samples:', len(all_image_paths))
 
-train_image_paths = all_image_paths[:17000]
-train_mask_paths = all_mask_paths[:17000]
-val_image_paths = all_image_paths[17000:]
-val_mask_paths = all_mask_paths[17000:]
+train_image_paths = all_image_paths[:9000]
+train_mask_paths = all_mask_paths[:9000]
+
+val_image_paths = all_image_paths[9000:]
+val_mask_paths = all_mask_paths[9000:]
+
 
 def datagen(image_paths, mask_paths, batch_size=16):
     for x in range(0, len(image_paths), batch_size):
         images = open_images(image_paths[x:x+batch_size]).reshape(-1,IMAGE_SIZE, IMAGE_SIZE, 1)
-        masks = open_images(mask_paths[x:x+batch_size]).reshape(-1,IMAGE_SIZE, IMAGE_SIZE, 1)
+        masks = open_masks(mask_paths[x:x+batch_size]).reshape(-1,IMAGE_SIZE, IMAGE_SIZE, 1)
         yield images, masks
 
-img_input = Input(shape=(IMAGE_SIZE, IMAGE_SIZE, 1))
 
-x1 = Conv2D(64, (3,3), activation='relu', padding='same')(img_input)
+img_input = Input(shape=(IMAGE_SIZE, IMAGE_SIZE, 1))
+x1 = BatchNormalization(axis=-1)(img_input)
+
 x1 = Conv2D(64, (3,3), activation='relu', padding='same')(x1)
-x1_pool = MaxPool2D((2,2))(x1)
+x1 = Conv2D(64, (3,3), activation='relu', padding='same')(x1)
+x1_pool = MaxPool2D((2, 2))(x1)
+
 
 x2 = Conv2D(128, (3,3), activation='relu', padding='same')(x1_pool)
 x2 = Conv2D(128, (3,3), activation='relu', padding='same')(x2)
 x2_pool = MaxPool2D((2,2))(x2)
 
+
 x3 = Conv2D(256, (3,3), activation='relu', padding='same')(x2_pool)
 x3 = Conv2D(256, (3,3), activation='relu', padding='same')(x3)
 x3 = Conv2D(256, (3,3), activation='relu', padding='same')(x3)
 x3_pool = MaxPool2D((2,2))(x3)
+
 
 x4 = Conv2D(256, (3,3), activation='relu', padding='same')(x3_pool)
 x4 = Conv2D(256, (3,3), activation='relu', padding='same')(x4)
@@ -111,7 +140,7 @@ x6_pool = UpSampling2D((2,2))(x6)
 x7 = Concatenate()([x6_pool, x1])
 x7 = Conv2D(64, (3,3), activation='relu', padding='same')(x7)
 x7 = Conv2D(64, (3,3), activation='relu', padding='same')(x7)
-x7 = Conv2D(1, (3,3), activation='sigmoid', padding='same')(x7)
+x7 = Conv2D(3, (3,3), activation='sigmoid', padding='same')(x7)
 
 model = Model(img_input, x7)
 
@@ -126,7 +155,7 @@ def iou_coef(y_true, y_pred, smooth=1):
 
 model.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=[iou_coef])
 
-batch_size = 20
+batch_size = 10
 steps = int(len(train_image_paths)/batch_size)
 epochs = 2
 for _ in range(epochs):
@@ -165,4 +194,6 @@ for i in range(1, c * r + 1, 2):
     plt.title('Predicted')
     plt.imshow(image[0], cmap='gray', interpolation='none')
     plt.imshow(pred[0], cmap='Spectral_r', alpha=0.3)
-plt.savefig("./pred.png")
+plt.savefig("pred2.png")
+
+
