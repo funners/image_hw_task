@@ -1,3 +1,3 @@
-# image_hw
-医学影像分析作业
-This is the first project
+# 医学影像分析作业
+
+基于Unet的分割肺模型改进，引入图像的高频信息，提高分割的准确度。
